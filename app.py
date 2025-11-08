@@ -20,23 +20,73 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Increase upload size limits
-st.session_state.setdefault("maxUploadSize", 1024)
-os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "1024"
-os.environ["STREAMLIT_SERVER_MAX_MESSAGE_SIZE"] = "1024"
+# ---------------- Theme Selection ----------------
+with st.sidebar:
+    st.header("🧭 Theme Settings")
+    selected_theme = st.radio("Choose Theme:", ["🌞 Light", "🌙 Dark"], index=0)
 
-# Load custom CSS
-css_path = os.path.join("assets", "styles.css")
+# ---------------- Apply Theme ----------------
+# Default light theme
+if selected_theme == "🌞 Light":
+    bg_color = "#f9f9fb"
+    text_color = "#111"
+    card_color = "#ffffff"
+    gradient = "linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+else:
+    bg_color = "#0e1117"
+    text_color = "#ffffff"
+    card_color = "#1c1f26"
+    gradient = "linear-gradient(135deg, #3a3b8f 0%, #5a189a 100%)"
+
+# ---------------- Load CSS (Render-safe path) ----------------
+css_path = os.path.join(os.path.dirname(__file__), "assets", "styles.css")
 if os.path.exists(css_path):
     with open(css_path, "r", encoding="utf-8") as f:
-        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+        css_content = f.read()
+        st.markdown(f"<style>{css_content}</style>", unsafe_allow_html=True)
+
+# ---------------- Inject Theme Styling ----------------
+st.markdown(
+    f"""
+    <style>
+        body {{
+            background-color: {bg_color};
+            color: {text_color};
+        }}
+        .main-header {{
+            background: {gradient};
+            color: white;
+        }}
+        .stApp {{
+            background-color: {bg_color};
+        }}
+        div[data-testid="stSidebar"] {{
+            background-color: {card_color};
+        }}
+        .stButton>button {{
+            background: {gradient} !important;
+            color: white !important;
+            border: none;
+        }}
+        .stProgress>div>div>div>div {{
+            background: {gradient};
+        }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------- Upload Config ----------------
+st.session_state.setdefault("maxUploadSize", 200)
+os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "200"
+os.environ["STREAMLIT_SERVER_MAX_MESSAGE_SIZE"] = "200"
 
 ensure_project_dirs()
 
 # ---------------- Header ----------------
 st.markdown(
     f"""
-    <div class="main-header">
+    <div class="main-header" style="text-align:center;padding:2rem;border-radius:12px;margin-bottom:2rem;">
       <h1>{APP_NAME} 🎯</h1>
       <p>This app detects whether your uploaded image appears anywhere in your uploaded video using advanced face recognition.</p>
     </div>
@@ -44,16 +94,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ---------------- Sidebar ----------------
+# ---------------- Sidebar Instructions ----------------
 with st.sidebar:
     st.header("ℹ️ How to Use")
-
     st.markdown(
         """
         1. **Upload a clear image** — a face from your video.
-        2. **Upload your video** — supports up to 1 GB.
-        3. Click **Start Checking** — app will scan automatically.
-        4. When scanning finishes, results will be shown clearly below.
+        2. **Upload your video** — up to 200 MB (Render limit).
+        3. Click **Start Checking** — scanning begins.
+        4. See results below when done.
         """
     )
 
@@ -61,8 +110,7 @@ with st.sidebar:
 st.subheader("📤 Upload Files")
 
 col_img, col_vid = st.columns(2)
-ref_image_file = None
-video_file = None
+ref_image_file, video_file = None, None
 
 with col_img:
     ref_image_file = st.file_uploader(
@@ -101,23 +149,14 @@ if run_btn:
         st.stop()
 
     try:
-        # Setup matcher and processor
-        matcher_params = MatchParams(
-            match_thresh=0.55,
-            max_width=MAX_WIDTH,
-        )
+        matcher_params = MatchParams(match_thresh=0.55, max_width=MAX_WIDTH)
         matcher = ImageMatcher(ref_image_path, params=matcher_params, model_dir=os.path.join("assets", "models"))
 
-        processor = VideoProcessor(
-            matcher=matcher,
-            step=1,
-            no_skip=True,
-        )
+        processor = VideoProcessor(matcher=matcher, step=1, no_skip=True)
 
         total_frames = _count_total_frames(video_path)
         st.info("🚀 Scanning your video... Please wait until the process completes.")
 
-        # ---------------- Processing Status (always visible, non-collapsible) ----------------
         status_placeholder = st.container()
         with status_placeholder:
             st.markdown("<h4 style='color:crimson;'>Processing video…</h4>", unsafe_allow_html=True)
@@ -133,7 +172,6 @@ if run_btn:
             if out.match is not None:
                 results.append(out.match)
 
-            # update progress bar only (same text / ETA as before)
             elapsed = time.time() - start
             eta = (elapsed / processed) * (max(total_frames, processed) - processed) if processed else 0
             denom = total_frames if total_frames > 0 else processed + 1
@@ -142,7 +180,6 @@ if run_btn:
                 text=f"Scanning… {processed}/{total_frames or '—'} frames | ETA: {str(timedelta(seconds=int(eta)))}"
             )
 
-        # replace status with completion message (non-collapsible)
         status_placeholder.empty()
         st.markdown("<h4 style='color:green;'>✅ Scan Complete</h4>", unsafe_allow_html=True)
 
@@ -150,7 +187,6 @@ if run_btn:
         st.markdown("### 📊 Final Result")
 
         if results:
-            # Deduplicate timestamps within 1-second window
             timestamps = sorted({int(r.timestamp_sec) for r in results})
             timestamps_td = [str(timedelta(seconds=int(t))) for t in timestamps]
 
